@@ -401,6 +401,16 @@ body.tool-eraser .layer-draw { cursor: cell; }
 .panel-block { padding: 16px; border-bottom: 1px solid var(--border-soft); }
 .panel-block:last-child { border-bottom: 0; }
 
+/* 匹配结果提示 */
+.match-info {
+  margin-top: 10px; padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  font-size: 12.5px; display: flex; flex-direction: column; gap: 2px;
+}
+.match-info b { color: var(--accent); font-size: 14px; }
+
 /* 引擎卡片 */
 .engine-list { display: flex; flex-direction: column; gap: 10px; }
 .engine-card { cursor: pointer; display: block; }

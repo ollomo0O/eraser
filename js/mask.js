@@ -125,6 +125,16 @@ export class MaskBoard {
    * 这个方法会在每次 pointermove 时被调用，绝不能做全图 getImageData，
    * 否则大图下每移动一下鼠标就要拷贝几十 MB 像素，直接卡死。
    */
+  /** 把一批矩形一次性写入遮罩（用于「识别全部」结果的批量应用） */
+  fillMaskRects(rects) {
+    if (!rects?.length) return;
+    this.maskCtx.fillStyle = MASK_FILL;
+    for (const r of rects) this.maskCtx.fillRect(r.x, r.y, r.w, r.h);
+    this._maskEmpty = false;
+    this._notify();
+    this.onChange();
+  }
+
   hasMask() {
     return !!(this.width && !this._maskEmpty);
   }

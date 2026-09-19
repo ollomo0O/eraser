@@ -196,6 +196,25 @@
 
     <!-- ---------- 去除水印面板 ---------- -->
     <div class="panel-section is-active" data-panel="remove">
+      <!-- 全局水印识别 -->
+      <div class="panel-block">
+        <div class="side-title">全局水印识别</div>
+        <p class="hint">满屏平铺水印：先用<strong>画笔</strong>沿笔画涂抹<strong>其中一个</strong>水印（只涂文字，别带到大片背景），再点「识别全部」。</p>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" id="btnDetectRepeats" disabled>识别全部</button>
+          <button class="btn btn-ghost btn-sm" id="btnClearMatches" hidden>取消</button>
+        </div>
+        <label class="field">
+          <span class="field-label">匹配灵敏度 <b id="matchThVal">50</b>%</span>
+          <input type="range" id="matchThreshold" min="35" max="90" value="50">
+        </label>
+        <div class="match-info" id="matchInfo" hidden>
+          <span>识别到 <b id="matchCount">0</b> 处</span>
+          <span class="hint inline">点击框可移除误识别</span>
+        </div>
+        <button class="btn btn-primary btn-block btn-sm" id="btnApplyMatches" hidden>应用为遮罩</button>
+      </div>
+
       <div class="panel-block">
         <div class="side-title">修复引擎</div>
         <div class="engine-list">

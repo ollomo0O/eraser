@@ -12,6 +12,7 @@ import { aiInpaint, fastInpaint, ensureModel, clearModel, isModelReady } from '.
 import { applyWatermark, loadLogoCanvas, suggestFontSize } from './watermark.js';
 import { BatchManager } from './batch.js';
 import { saveProject, readProject, restoreProject } from './project.js';
+import { detectRepeats } from './match.js';
 
 /* ---------------- 画板实例 ---------------- */
 const board = new MaskBoard({
@@ -22,6 +23,8 @@ const board = new MaskBoard({
   onChange: () => {
     // 马赛克编辑会改动底图，需要同步到基准画布
     if (state.tool === 'mosaic' && !state.resultCanvas) syncClean();
+    // 矩形预览会清空绘制层，需重绘识别框
+    if (state.match.active) renderMatches();
     updateRemovePanel();
   },
 });
@@ -33,6 +36,9 @@ const batch = new BatchManager({
 
 /** 当前基准图像：所有处理的输入，不含对比视图 */
 state.cleanCanvas = null;
+
+/** 全局水印识别（满屏平铺）状态 */
+state.match = { active: false, boxes: [], threshold: 0.5 };
 
 function syncClean() {
   state.cleanCanvas = board.baseAsCanvas;
@@ -307,6 +313,19 @@ function renderStage() {
    去除水印面板
    ============================================================ */
 function bindRemovePanel() {
+  // --- 全局水印识别 ---
+  on($('#btnDetectRepeats'), 'click', runDetectRepeats);
+  on($('#btnClearMatches'), 'click', () => clearMatches());
+  on($('#btnApplyMatches'), 'click', applyMatches);
+
+  const thRange = $('#matchThreshold');
+  on(thRange, 'input', () => { $('#matchThVal').textContent = thRange.value; });
+  // 松手后才重算，避免拖动过程中反复触发耗时匹配
+  on(thRange, 'change', () => {
+    state.match.threshold = +thRange.value / 100;
+    if (state.match.active || board.hasMask()) runDetectRepeats();
+  });
+
   $$('input[name="engine"]').forEach((r) => {
     on(r, 'change', () => {
       state.engine = r.value;
@@ -345,6 +364,86 @@ function bindRemovePanel() {
     state.comparing = e.target.checked;
     renderStage();
   });
+}
+
+/* ============================================================
+   全局水印识别（满屏平铺水印）
+   框选一个水印 → 全图 NCC 匹配 → 预览并增删 → 应用为遮罩
+   ============================================================ */
+
+async function runDetectRepeats() {
+  if (!state.cleanCanvas) return;
+  if (!board.hasMask()) {
+    toast('请先用「画笔」沿文字笔画涂抹一个水印作为样本', 'error', 3600);
+    return;
+  }
+
+  showOverlay('识别重复水印…', '正在全图比对，请稍候');
+  await sleep(0);
+
+  try {
+    // 用遮罩（涂抹范围）而非矩形框作为模板，避免把大片背景算进去
+    const mask = board.getMaskBinaryCanvas();
+    const boxes = detectRepeats(state.cleanCanvas, mask, {
+      threshold: state.match.threshold,
+    });
+    state.match.boxes = boxes;
+    state.match.active = boxes.length > 0;
+    renderMatches();
+    updateMatchUI();
+
+    if (!boxes.length) {
+      toast('未找到重复区域，可尝试降低灵敏度或重框样本', 'error', 3600);
+    } else {
+      toast(`识别到 ${boxes.length} 处重复水印`, 'success');
+    }
+  } catch (e) {
+    console.error(e);
+    toast(e.message || '识别失败', 'error');
+  } finally {
+    hideOverlay();
+  }
+}
+
+function clearMatches() {
+  state.match.active = false;
+  state.match.boxes = [];
+  renderMatches();
+  updateMatchUI();
+}
+
+/** 在绘制层画出识别框（绿色描边） */
+function renderMatches() {
+  if (!board.width) return;
+  const ctx = board.drawCtx;
+  ctx.clearRect(0, 0, board.width, board.height);
+  if (!state.match.active || !state.match.boxes.length) return;
+
+  ctx.save();
+  ctx.strokeStyle = '#3fb950';
+  ctx.lineWidth = Math.max(1, 2 / board.zoom);
+  ctx.setLineDash([]);
+  for (const b of state.match.boxes) ctx.strokeRect(b.x, b.y, b.w, b.h);
+  ctx.restore();
+}
+
+function applyMatches() {
+  const boxes = state.match.boxes;
+  if (!boxes.length) return;
+  board.fillMaskRects(boxes);
+  const n = boxes.length;
+  clearMatches();
+  toast(`已将 ${n} 处标记为待修复区域`, 'success');
+}
+
+function updateMatchUI() {
+  const n = state.match.boxes.length;
+  const active = state.match.active && n > 0;
+  $('#matchInfo').hidden = !active;
+  $('#btnApplyMatches').hidden = !active;
+  $('#btnClearMatches').hidden = !active;
+  $('#matchCount').textContent = n;
+  $('#btnApplyMatches').disabled = !active;
 }
 
 async function loadModel(auto) {
@@ -398,6 +497,7 @@ function updateRemovePanel() {
   const btn = $('#btnRunRemove');
   const hint = $('#removeHint');
   btn.disabled = !hasImg || !hasMask;
+  $('#btnDetectRepeats').disabled = !hasImg || !hasMask;
 
   if (!hasImg) hint.textContent = '请先载入一张图片';
   else if (!hasMask) hint.textContent = '用画笔或矩形标记出水印区域（可多次叠加）';
@@ -796,7 +896,22 @@ function bindShortcuts() {
   });
 
   // 结果态下开始新的标记：自动把结果落到新的基准底图
-  on($('#drawCanvas'), 'pointerdown', () => {
+  on($('#drawCanvas'), 'pointerdown', (e) => {
+    // 识别预览态：点中某个框即可移除该误识别
+    if (state.match.active) {
+      const p = board._pos(e);
+      const idx = state.match.boxes.findIndex(
+        (b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h
+      );
+      if (idx >= 0) {
+        state.match.boxes.splice(idx, 1);
+        if (!state.match.boxes.length) state.match.active = false;
+        renderMatches();
+        updateMatchUI();
+        e.stopPropagation();   // 不让画板把这次点击当成新的涂抹
+        return;
+      }
+    }
     if (state.resultCanvas) {
       board.replaceBase(state.resultCanvas);
       state.cleanCanvas = canvasFromSource(state.resultCanvas, board.width, board.height);
