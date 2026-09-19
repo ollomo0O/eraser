@@ -1,0 +1,4 @@
+.DS_Store
+.codebuddy/
+*.log
+node_modules/

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eraser · 图片水印处理</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+
+<!-- ============ 顶部栏 ============ -->
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+         stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 8.8V4h4.8M15.2 4H20v4.8M20 15.2V20h-4.8M8.8 20H4v-4.8"/>
+      <rect x="6.8" y="9.8" width="9.4" height="5" rx="1.8" transform="rotate(-45 11.5 12.3)"/>
+    </svg>
+    <div class="brand-text">
+      <strong>Eraser</strong>
+      <span>Watermark Remover</span>
+    </div>
+  </div>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab is-active" data-tab="remove">去除水印</button>
+    <button class="tab" data-tab="add">添加水印</button>
+    <button class="tab" data-tab="batch">批量处理</button>
+  </nav>
+
+  <div class="topbar-right">
+    <span class="badge-local" title="所有处理均在你的浏览器本地完成，图片不会上传到任何服务器">
+      <i class="dot"></i>本地处理
+    </span>
+    <button class="icon-btn" id="themeToggle" title="切换深色 / 浅色主题">
+      <svg class="ico-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <svg class="ico-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ============ 左侧工具栏 ============ -->
+  <aside class="sidebar">
+    <!-- 上传区（所有模式共用） -->
+    <div class="side-block">
+      <button class="btn btn-primary btn-block" id="btnPickImage">
+        <svg viewBox="0 0 24 24" fill="none" class="btn-ico"><path d="M12 16V4m0 0L8 8m4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        选择图片
+      </button>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <input type="file" id="fileInputMulti" accept="image/*" multiple hidden>
+      <p class="hint">支持 JPG / PNG / WebP，也可直接拖拽或 Ctrl+V 粘贴</p>
+    </div>
+
+    <!-- 标记工具（去水印模式） -->
+    <div class="side-block" data-only="remove">
+      <div class="side-title">标记工具</div>
+      <div class="tool-grid">
+        <button class="tool-btn is-active" data-tool="brush" title="画笔涂抹（B）">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 20c3-1 4-2.5 5.5-4.5M15.5 4.5l4 4-8.2 8.2a2 2 0 0 1-1 .5L6.8 18l1-3.3a2 2 0 0 1 .5-1L16.5 4.5z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>画笔</span>
+        </button>
+        <button class="tool-btn" data-tool="rect" title="矩形框选（R）">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5.5" width="16" height="13" rx="2" stroke="currentColor" stroke-width="1.7" stroke-dasharray="3.5 3"/></svg>
+          <span>矩形</span>
+        </button>
+        <button class="tool-btn" data-tool="eraser" title="橡皮擦（E）">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M8 19h11M4.6 15.2l4.2 4.2 8.4-8.4-4.2-4.2L4.6 15.2z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>橡皮</span>
+        </button>
+        <button class="tool-btn" data-tool="mosaic" title="马赛克笔（M）">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="4" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="13" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="13" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/></svg>
+          <span>马赛克</span>
+        </button>
+      </div>
+      <label class="field">
+        <span class="field-label">笔刷大小 <b id="brushSizeVal">40</b> px</span>
+        <input type="range" id="brushSize" min="4" max="200" value="40">
+      </label>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" id="btnUndo" title="撤销 (Ctrl+Z)">撤销</button>
+        <button class="btn btn-ghost btn-sm" id="btnRedo" title="重做 (Ctrl+Shift+Z)">重做</button>
+        <button class="btn btn-ghost btn-sm" id="btnClearMask">清空</button>
+      </div>
+      <label class="switch-row">
+        <input type="checkbox" id="toggleMaskView" checked>
+        <span>显示遮罩高亮</span>
+      </label>
+    </div>
+
+    <!-- 添加水印工具 -->
+    <div class="side-block" data-only="add">
+      <div class="side-title">水印类型</div>
+      <div class="tool-grid">
+        <button class="tool-btn is-active" data-wm="text">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 6.5V5h14v1.5M12 5v14M9 19h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          <span>文字</span>
+        </button>
+        <button class="tool-btn" data-wm="logo">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 15.5l5-4 4.5 3.5 3-2.5 5 4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          <span>Logo</span>
+        </button>
+        <button class="tool-btn" data-wm="mosaicTool">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="4" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="13" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="13" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.7"/></svg>
+          <span>马赛克</span>
+        </button>
+      </div>
+      <p class="hint">马赛克模式下，在图片上涂抹即可打码</p>
+    </div>
+
+    <!-- 视图控制 -->
+    <div class="side-block">
+      <div class="side-title">视图</div>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" id="btnZoomOut">−</button>
+        <span class="zoom-val" id="zoomVal">自适应</span>
+        <button class="btn btn-ghost btn-sm" id="btnZoomIn">+</button>
+      </div>
+      <button class="btn btn-ghost btn-block btn-sm" id="btnFit">自适应窗口</button>
+    </div>
+
+    <div class="side-spacer"></div>
+
+    <!-- 项目文件 -->
+    <div class="side-block">
+      <div class="side-title">项目</div>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" id="btnSaveProject">保存项目</button>
+        <button class="btn btn-ghost btn-sm" id="btnLoadProject">加载</button>
+      </div>
+      <input type="file" id="projectInput" accept=".json,application/json" hidden>
+    </div>
+  </aside>
+
+  <!-- ============ 中间舞台 ============ -->
+  <main class="stage" id="stage">
+    <!-- 空状态 -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-card">
+        <svg viewBox="0 0 64 64" fill="none" class="empty-ico">
+          <rect x="8" y="12" width="48" height="40" rx="5" stroke="currentColor" stroke-width="2.4"/>
+          <path d="M8 42l13-12 9.5 8.5L40 30l16 14" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+          <circle cx="41" cy="24" r="4.5" stroke="currentColor" stroke-width="2.4"/>
+        </svg>
+        <h2>拖入图片开始</h2>
+        <p>图片仅在浏览器本地处理，不会上传到任何服务器</p>
+        <button class="btn btn-primary" id="btnPickImage2">选择图片</button>
+      </div>
+    </div>
+
+    <!-- 画布区 -->
+    <div class="canvas-area" id="canvasArea" hidden>
+      <div class="canvas-scroll" id="canvasScroll">
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="baseCanvas"></canvas>
+          <canvas id="maskCanvas" class="layer-mask"></canvas>
+          <canvas id="drawCanvas" class="layer-draw"></canvas>
+        </div>
+      </div>
+
+      <!-- 对比滑块 -->
+      <div class="compare-bar" id="compareBar" hidden>
+        <div class="compare-track" id="compareTrack">
+          <div class="compare-handle" id="compareHandle">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <span class="compare-tag compare-tag-left">处理结果</span>
+          <span class="compare-tag compare-tag-right">原图</span>
+        </div>
+      </div>
+
+      <!-- 加载遮罩 -->
+      <div class="stage-overlay" id="stageOverlay" hidden>
+        <div class="overlay-card">
+          <div class="spinner"></div>
+          <div class="overlay-title" id="overlayTitle">正在处理…</div>
+          <div class="progress" id="overlayProgressWrap" hidden>
+            <div class="progress-bar" id="overlayProgressBar"></div>
+          </div>
+          <div class="overlay-desc" id="overlayDesc"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 拖拽浮层 -->
+    <div class="drop-hint" id="dropHint"><div class="drop-hint-inner">松开即可载入图片</div></div>
+  </main>
+
+  <!-- ============ 右侧面板 ============ -->
+  <aside class="panel" id="panel">
+
+    <!-- ---------- 去除水印面板 ---------- -->
+    <div class="panel-section is-active" data-panel="remove">
+      <div class="panel-block">
+        <div class="side-title">修复引擎</div>
+        <div class="engine-list">
+          <label class="engine-card">
+            <input type="radio" name="engine" value="ai" checked>
+            <div class="engine-body">
+              <div class="engine-head">
+                <strong>AI 高质量修复</strong>
+                <span class="chip chip-accent">推荐</span>
+              </div>
+              <p>基于 LaMa 大掩膜修复模型，理解图像语义结构，水印擦除后背景自然衔接，适合复杂背景。</p>
+            </div>
+          </label>
+          <label class="engine-card">
+            <input type="radio" name="engine" value="fast">
+            <div class="engine-body">
+              <div class="engine-head"><strong>快速本地修复</strong></div>
+              <p>纯 JS 邻域扩散算法，无需下载模型、即时出图，适合纯色 / 简单背景的小面积水印。</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- 模型状态 -->
+      <div class="panel-block" id="modelBlock">
+        <div class="side-title">AI 模型</div>
+        <div class="model-state" id="modelState" data-state="idle">
+          <div class="model-row">
+            <span class="status-dot"></span>
+            <span class="model-status-text" id="modelStatusText">尚未加载</span>
+          </div>
+          <div class="model-progress" id="modelProgress" hidden>
+            <div class="progress"><div class="progress-bar" id="modelProgressBar"></div></div>
+            <span class="model-pct" id="modelPct">0%</span>
+          </div>
+          <p class="hint" id="modelHint">首次使用需从 CDN 下载约 200MB 模型，之后会缓存在浏览器中。</p>
+          <div class="btn-row">
+            <button class="btn btn-ghost btn-sm" id="btnLoadModel">加载模型</button>
+            <button class="btn btn-ghost btn-sm" id="btnClearModelCache">清除缓存</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-block">
+        <button class="btn btn-primary btn-block btn-lg" id="btnRunRemove" disabled>
+          <svg viewBox="0 0 24 24" fill="none" class="btn-ico"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          开始去除
+        </button>
+        <p class="hint" id="removeHint">请先在图片上标记水印区域</p>
+      </div>
+
+      <div class="panel-block" id="resultBlock" hidden>
+        <div class="side-title">结果</div>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" id="btnDownloadResult">下载结果</button>
+          <button class="btn btn-ghost btn-sm" id="btnUseResult">作为新底图</button>
+        </div>
+        <label class="switch-row">
+          <input type="checkbox" id="toggleCompare" checked>
+          <span>拖动对比原图</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- ---------- 添加水印面板 ---------- -->
+    <div class="panel-section" data-panel="add">
+      <!-- 文字水印设置 -->
+      <div class="panel-block" data-wmset="text">
+        <div class="side-title">文字水印</div>
+        <label class="field">
+          <span class="field-label">水印文字</span>
+          <input type="text" id="wmText" class="input" value="© Eraser" placeholder="输入水印内容">
+        </label>
+        <div class="field-grid">
+          <label class="field">
+            <span class="field-label">字号 <b id="wmSizeVal">28</b></span>
+            <input type="range" id="wmSize" min="8" max="120" value="28">
+          </label>
+          <label class="field">
+            <span class="field-label">透明度 <b id="wmOpacityVal">45</b>%</span>
+            <input type="range" id="wmOpacity" min="5" max="100" value="45">
+          </label>
+        </div>
+        <label class="field">
+          <span class="field-label">颜色</span>
+          <div class="color-row">
+            <input type="color" id="wmColor" value="#ffffff">
+            <select id="wmFont" class="input">
+              <option value="system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">系统默认</option>
+              <option value="Georgia, 'Times New Roman', serif">衬线体 Georgia</option>
+              <option value="'Impact', 'Arial Black', sans-serif">粗黑 Impact</option>
+              <option value="'Courier New', monospace">等宽 Courier</option>
+            </select>
+          </div>
+        </label>
+        <label class="field">
+          <span class="field-label">旋转角度 <b id="wmAngleVal">0</b>°</span>
+          <input type="range" id="wmAngle" min="-90" max="90" value="0">
+        </label>
+      </div>
+
+      <!-- Logo 水印设置 -->
+      <div class="panel-block" data-wmset="logo" hidden>
+        <div class="side-title">Logo 水印</div>
+        <button class="btn btn-ghost btn-block btn-sm" id="btnPickLogo">选择 Logo 图片</button>
+        <input type="file" id="logoInput" accept="image/*" hidden>
+        <div class="logo-preview" id="logoPreview" hidden>
+          <img id="logoPreviewImg" alt="Logo 预览">
+          <span id="logoName"></span>
+        </div>
+        <label class="field">
+          <span class="field-label">缩放 <b id="logoScaleVal">30</b>%</span>
+          <input type="range" id="logoScale" min="5" max="150" value="30">
+        </label>
+        <label class="field">
+          <span class="field-label">透明度 <b id="logoOpacityVal">50</b>%</span>
+          <input type="range" id="logoOpacity" min="5" max="100" value="50">
+        </label>
+        <label class="field">
+          <span class="field-label">旋转角度 <b id="logoAngleVal">0</b>°</span>
+          <input type="range" id="logoAngle" min="-90" max="90" value="0">
+        </label>
+      </div>
+
+      <!-- 通用排版设置 -->
+      <div class="panel-block" data-wmset="common">
+        <div class="side-title">排版</div>
+        <label class="field">
+          <span class="field-label">位置</span>
+          <select id="wmPosition" class="input">
+            <option value="bottom-right">右下角</option>
+            <option value="bottom-left">左下角</option>
+            <option value="top-right">右上角</option>
+            <option value="top-left">左上角</option>
+            <option value="center">居中</option>
+            <option value="tile">满屏平铺</option>
+          </select>
+        </label>
+        <div class="field-grid" data-not-tile>
+          <label class="field">
+            <span class="field-label">水平间距 <b id="wmPadXVal">24</b></span>
+            <input type="range" id="wmPadX" min="0" max="200" value="24">
+          </label>
+          <label class="field">
+            <span class="field-label">垂直间距 <b id="wmPadYVal">24</b></span>
+            <input type="range" id="wmPadY" min="0" max="200" value="24">
+          </label>
+        </div>
+        <div class="field-grid" data-only-tile hidden>
+          <label class="field">
+            <span class="field-label">平铺行距 <b id="wmTileYVal">120</b></span>
+            <input type="range" id="wmTileY" min="20" max="400" value="120">
+          </label>
+          <label class="field">
+            <span class="field-label">平铺列距 <b id="wmTileXVal">160</b></span>
+            <input type="range" id="wmTileX" min="20" max="400" value="160">
+          </label>
+        </div>
+        <label class="switch-row" data-not-tile>
+          <input type="checkbox" id="wmShadow">
+          <span>添加描边阴影</span>
+        </label>
+      </div>
+
+      <div class="panel-block">
+        <label class="switch-row">
+          <input type="checkbox" id="wmPreview" checked>
+          <span>实时预览水印</span>
+        </label>
+        <button class="btn btn-primary btn-block btn-lg" id="btnApplyWatermark" disabled>应用并导出</button>
+        <p class="hint">马赛克模式下使用左侧「马赛克」笔刷直接涂抹即可打码。</p>
+      </div>
+    </div>
+
+    <!-- ---------- 批量处理面板 ---------- -->
+    <div class="panel-section" data-panel="batch">
+      <div class="panel-block">
+        <div class="side-title">图片队列 <span class="count-chip" id="batchCount">0</span></div>
+        <button class="btn btn-ghost btn-block btn-sm" id="btnPickBatch">添加多张图片</button>
+        <div class="batch-list" id="batchList">
+          <p class="hint center">尚未添加图片</p>
+        </div>
+      </div>
+
+      <div class="panel-block">
+        <div class="side-title">批次遮罩</div>
+        <p class="hint">在下方统一标记一次水印区域，将应用到队列中所有图片。</p>
+        <div class="batch-mask-canvas">
+          <canvas id="batchRefCanvas"></canvas>
+          <canvas id="batchMaskCanvas" class="layer-mask"></canvas>
+          <canvas id="batchDrawCanvas" class="layer-draw"></canvas>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" id="btnClearBatchMask">清空遮罩</button>
+          <span class="hint inline" id="batchMaskInfo">未标记</span>
+        </div>
+      </div>
+
+      <div class="panel-block">
+        <div class="side-title">处理引擎</div>
+        <div class="btn-row radio-row">
+          <label class="radio-pill"><input type="radio" name="bEngine" value="ai" checked><span>AI 高质量</span></label>
+          <label class="radio-pill"><input type="radio" name="bEngine" value="fast"><span>快速本地</span></label>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" id="btnRunBatch" disabled>开始批量处理</button>
+          <button class="btn btn-ghost btn-sm" id="btnDownloadAll" disabled>打包下载</button>
+        </div>
+        <div class="batch-progress" id="batchProgress" hidden>
+          <div class="progress"><div class="progress-bar" id="batchProgressBar"></div></div>
+          <span class="model-pct" id="batchProgressText">0 / 0</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Toast -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
